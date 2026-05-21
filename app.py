@@ -1,3 +1,4 @@
+import os
 import streamlit as st
 import tensorflow as tf
 import numpy as np
@@ -5,6 +6,21 @@ from PIL import Image
 import pandas as pd
 import time
 import io
+import gdown
+
+# ── Auto-download models from Google Drive ─────────────────────────────────────
+MODEL_FILES = {
+    "resnet50_meal_classifier.keras":    "1ezL9NKa-8GLMazl0A8ZuNXNmPR-0qB8V",
+    "mobilenetv2_meal_classifier.keras": "1tWlocJN-wLsmJWuv9YHFxC-xR6Hq2S0-",
+}
+
+def download_models():
+    for filename, file_id in MODEL_FILES.items():
+        if not os.path.exists(filename):
+            with st.spinner(f"Downloading {filename} from Google Drive…"):
+                gdown.download(id=file_id, output=filename, quiet=False)
+
+download_models()
 
 # ── Page config ────────────────────────────────────────────────────────────────
 st.set_page_config(
