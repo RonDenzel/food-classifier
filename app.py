@@ -10,8 +10,8 @@ import gdown
 
 # ── Auto-download models from Google Drive ─────────────────────────────────────
 MODEL_FILES = {
-    "resnet50_meal_classifier.keras":    "1ezL9NKa-8GLMazl0A8ZuNXNmPR-0qB8V",
-    "mobilenetv2_meal_classifier.keras": "1tWlocJN-wLsmJWuv9YHFxC-xR6Hq2S0-",
+    "resnet50_meal_classifier.keras":    "1gFOvMtI07tjmJOlC6oMwYkfRcBI0wx1v",
+    "mobilenetv2_meal_classifier.keras": "1rTesCL4ondRuUBviBplk6X0jdmBXTTRa",
 }
 
 def download_models():
