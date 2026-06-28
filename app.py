@@ -50,6 +50,20 @@ MODEL_CONFIG = {
 
 IMG_SIZE = (224, 224)
 
+# ── Food gate constants ────────────────────────────────────────────────────────
+# ImageNet synsets starting with "n07" cover most food/produce classes.
+# _FOOD_KEYWORDS catches food-related classes outside that prefix.
+_FOOD_SYNSET_PREFIX = "n07"
+_FOOD_KEYWORDS = {
+    "soup", "bowl", "plate", "pizza", "burger", "hotdog", "hot_dog",
+    "egg", "bread", "meat", "fish", "steak", "salad", "sandwich",
+    "ice_cream", "cake", "cookie", "donut", "chocolate", "candy",
+    "coffee", "espresso", "milk", "beer", "wine", "juice", "cup", "mug",
+    "lobster", "crab", "shrimp", "clam", "oyster", "sushi", "dumpling",
+    "taco", "burrito", "noodle", "pasta", "rice", "casserole",
+    "pretzel", "popcorn", "cereal", "granola", "waffle", "pancake",
+}
+
 # ── Custom CSS ─────────────────────────────────────────────────────────────────
 st.markdown("""
 <style>
@@ -144,6 +158,26 @@ def load_model(model_name: str):
     return tf.keras.models.load_model(path)
 
 
+@st.cache_resource
+def load_gate_model():
+    """MobileNetV2 with ImageNet weights — used only as a food/non-food gate."""
+    return tf.keras.applications.MobileNetV2(weights="imagenet", include_top=True)
+
+
+def is_food_image(image: Image.Image) -> bool:
+    gate = load_gate_model()
+    arr = np.expand_dims(np.array(image.convert("RGB").resize(IMG_SIZE), dtype=np.float32), axis=0)
+    arr = tf.keras.applications.mobilenet_v2.preprocess_input(arr)
+    preds = gate.predict(arr, verbose=0)
+    decoded = tf.keras.applications.mobilenet_v2.decode_predictions(preds, top=10)[0]
+    for synset_id, class_name, _ in decoded:
+        if synset_id.startswith(_FOOD_SYNSET_PREFIX):
+            return True
+        if any(kw in class_name.lower() for kw in _FOOD_KEYWORDS):
+            return True
+    return False
+
+
 # ── Image preprocessor ────────────────────────────────────────────────────────
 def preprocess_image(image: Image.Image, model_name: str) -> np.ndarray:
     img = image.convert("RGB").resize(IMG_SIZE)
@@ -223,92 +257,109 @@ with col_results:
     if uploaded:
         st.markdown("### Prediction")
 
-        with st.spinner(f"Running {model_name}…"):
-            pred_class, confidence, probs, inference_ms = predict(image, model_name)
+        with st.spinner("Checking image…"):
+            food_detected = is_food_image(image)
 
-        color = CLASS_COLOR[pred_class]
-        emoji = CLASS_EMOJI[pred_class]
-
-        # ── Prediction banner ──────────────────────────────────────────────────
-        st.markdown(f"""
-        <div class="pred-banner animate-in" style="background:linear-gradient(135deg,{color}22,{color}08);border:1px solid {color}55;">
-            <div class="emoji">{emoji}</div>
-            <div>
-                <div class="pred-class" style="color:{color};">{pred_class.capitalize()}</div>
-                <div class="pred-conf">{confidence:.1f}% confidence</div>
+        if not food_detected:
+            # ── Not-food error banner ──────────────────────────────────────────
+            st.markdown("""
+            <div class="pred-banner animate-in" style="background:linear-gradient(135deg,#FF525222,#FF525208);border:1px solid #FF525555;">
+                <div class="emoji">🚫</div>
+                <div>
+                    <div class="pred-class" style="color:#FF5252;">NOT FOOD</div>
+                    <div class="pred-conf">PLS UPLOAD FOOD</div>
+                </div>
             </div>
-        </div>
-        """, unsafe_allow_html=True)
+            """, unsafe_allow_html=True)
 
-        # ── Quick metrics ──────────────────────────────────────────────────────
-        m1, m2, m3 = st.columns(3)
-        with m1:
-            st.markdown(f"""
-            <div class="metric-card animate-in">
-                <div class="label">Model</div>
-                <div class="value" style="font-size:1.1rem;color:#c8d0f0;">{model_name}</div>
-            </div>""", unsafe_allow_html=True)
-        with m2:
-            st.markdown(f"""
-            <div class="metric-card animate-in">
-                <div class="label">Confidence</div>
-                <div class="value" style="color:{color};">{confidence:.1f}<span style="font-size:1rem;">%</span></div>
-            </div>""", unsafe_allow_html=True)
-        with m3:
-            st.markdown(f"""
-            <div class="metric-card animate-in">
-                <div class="label">Inference</div>
-                <div class="value mono" style="color:#b8c0e0;font-size:1.4rem;">{inference_ms:.0f}<span style="font-size:0.9rem;">ms</span></div>
-            </div>""", unsafe_allow_html=True)
+        else:
+            # ── Run classifier ────────────────────────────────────────────────
+            with st.spinner(f"Running {model_name}…"):
+                pred_class, confidence, probs, inference_ms = predict(image, model_name)
 
-        # ── Bar chart ──────────────────────────────────────────────────────────
-        st.markdown("<br>", unsafe_allow_html=True)
-        st.markdown("**Probability Distribution**")
-        chart_data = pd.DataFrame({
-            "Class":       [f"{CLASS_EMOJI[c]} {c.capitalize()}" for c in CLASS_NAMES],
-            "Probability": [float(p) * 100 for p in probs],
-        }).set_index("Class")
-        st.bar_chart(chart_data, color="#4FC3F7", height=200)
+            color = CLASS_COLOR[pred_class]
+            emoji = CLASS_EMOJI[pred_class]
 
-        # ── Expandable detail ──────────────────────────────────────────────────
-        with st.expander("📊 Detailed Probabilities", expanded=False):
-            df = pd.DataFrame({
+            # ── Prediction banner ─────────────────────────────────────────────
+            st.markdown(f"""
+            <div class="pred-banner animate-in" style="background:linear-gradient(135deg,{color}22,{color}08);border:1px solid {color}55;">
+                <div class="emoji">{emoji}</div>
+                <div>
+                    <div class="pred-class" style="color:{color};">{pred_class.capitalize()}</div>
+                    <div class="pred-conf">{confidence:.1f}% confidence</div>
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+
+            # ── Quick metrics ─────────────────────────────────────────────────
+            m1, m2, m3 = st.columns(3)
+            with m1:
+                st.markdown(f"""
+                <div class="metric-card animate-in">
+                    <div class="label">Model</div>
+                    <div class="value" style="font-size:1.1rem;color:#c8d0f0;">{model_name}</div>
+                </div>""", unsafe_allow_html=True)
+            with m2:
+                st.markdown(f"""
+                <div class="metric-card animate-in">
+                    <div class="label">Confidence</div>
+                    <div class="value" style="color:{color};">{confidence:.1f}<span style="font-size:1rem;">%</span></div>
+                </div>""", unsafe_allow_html=True)
+            with m3:
+                st.markdown(f"""
+                <div class="metric-card animate-in">
+                    <div class="label">Inference</div>
+                    <div class="value mono" style="color:#b8c0e0;font-size:1.4rem;">{inference_ms:.0f}<span style="font-size:0.9rem;">ms</span></div>
+                </div>""", unsafe_allow_html=True)
+
+            # ── Bar chart ─────────────────────────────────────────────────────
+            st.markdown("<br>", unsafe_allow_html=True)
+            st.markdown("**Probability Distribution**")
+            chart_data = pd.DataFrame({
                 "Class":       [f"{CLASS_EMOJI[c]} {c.capitalize()}" for c in CLASS_NAMES],
-                "Probability": [f"{float(p)*100:.4f}%" for p in probs],
-                "Raw Score":   [f"{float(p):.6f}" for p in probs],
-            })
-            st.dataframe(df, use_container_width=True, hide_index=True)
+                "Probability": [float(p) * 100 for p in probs],
+            }).set_index("Class")
+            st.bar_chart(chart_data, color="#4FC3F7", height=200)
 
-        # ── Comparison summary ─────────────────────────────────────────────────
-        st.markdown("<br>", unsafe_allow_html=True)
-        st.markdown("### 🔍 Run Summary")
-        st.markdown(f"""
-        <div class="cmp-card animate-in">
-            <div class="cmp-title">Last Inference</div>
-            <table style="width:100%;border-collapse:collapse;">
-                <tr>
-                    <td style="color:#555d80;font-size:0.82rem;padding:5px 0;">Model</td>
-                    <td style="color:#c8d0f0;font-size:0.88rem;font-weight:600;text-align:right;">{model_name}</td>
-                </tr>
-                <tr>
-                    <td style="color:#555d80;font-size:0.82rem;padding:5px 0;">Prediction</td>
-                    <td style="color:{color};font-size:0.88rem;font-weight:600;text-align:right;">{emoji} {pred_class.capitalize()}</td>
-                </tr>
-                <tr>
-                    <td style="color:#555d80;font-size:0.82rem;padding:5px 0;">Confidence</td>
-                    <td style="color:#c8d0f0;font-size:0.88rem;font-weight:600;text-align:right;">{confidence:.2f}%</td>
-                </tr>
-                <tr>
-                    <td style="color:#555d80;font-size:0.82rem;padding:5px 0;">Inference Time</td>
-                    <td style="color:#c8d0f0;font-size:0.88rem;font-weight:600;font-family:monospace;text-align:right;">{inference_ms:.1f} ms</td>
-                </tr>
-                <tr>
-                    <td style="color:#555d80;font-size:0.82rem;padding:5px 0;">Image</td>
-                    <td style="color:#6b7499;font-size:0.82rem;text-align:right;">{uploaded.name}</td>
-                </tr>
-            </table>
-        </div>
-        """, unsafe_allow_html=True)
+            # ── Expandable detail ─────────────────────────────────────────────
+            with st.expander("📊 Detailed Probabilities", expanded=False):
+                df = pd.DataFrame({
+                    "Class":       [f"{CLASS_EMOJI[c]} {c.capitalize()}" for c in CLASS_NAMES],
+                    "Probability": [f"{float(p)*100:.4f}%" for p in probs],
+                    "Raw Score":   [f"{float(p):.6f}" for p in probs],
+                })
+                st.dataframe(df, use_container_width=True, hide_index=True)
+
+            # ── Run summary ───────────────────────────────────────────────────
+            st.markdown("<br>", unsafe_allow_html=True)
+            st.markdown("### 🔍 Run Summary")
+            st.markdown(f"""
+            <div class="cmp-card animate-in">
+                <div class="cmp-title">Last Inference</div>
+                <table style="width:100%;border-collapse:collapse;">
+                    <tr>
+                        <td style="color:#555d80;font-size:0.82rem;padding:5px 0;">Model</td>
+                        <td style="color:#c8d0f0;font-size:0.88rem;font-weight:600;text-align:right;">{model_name}</td>
+                    </tr>
+                    <tr>
+                        <td style="color:#555d80;font-size:0.82rem;padding:5px 0;">Prediction</td>
+                        <td style="color:{color};font-size:0.88rem;font-weight:600;text-align:right;">{emoji} {pred_class.capitalize()}</td>
+                    </tr>
+                    <tr>
+                        <td style="color:#555d80;font-size:0.82rem;padding:5px 0;">Confidence</td>
+                        <td style="color:#c8d0f0;font-size:0.88rem;font-weight:600;text-align:right;">{confidence:.2f}%</td>
+                    </tr>
+                    <tr>
+                        <td style="color:#555d80;font-size:0.82rem;padding:5px 0;">Inference Time</td>
+                        <td style="color:#c8d0f0;font-size:0.88rem;font-weight:600;font-family:monospace;text-align:right;">{inference_ms:.1f} ms</td>
+                    </tr>
+                    <tr>
+                        <td style="color:#555d80;font-size:0.82rem;padding:5px 0;">Image</td>
+                        <td style="color:#6b7499;font-size:0.82rem;text-align:right;">{uploaded.name}</td>
+                    </tr>
+                </table>
+            </div>
+            """, unsafe_allow_html=True)
 
     else:
         # Empty state
